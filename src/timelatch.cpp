@@ -230,9 +230,10 @@ void thread_send(SerialPtr port, boost::asio::io_service* ios) {
 
 	boost::this_thread::sleep_for(boost::chrono::milliseconds(1000));
 	while (port->IsOpen()) {
+		trigger.complete();
 		output = trigger.to_string(n);
 		port->Write(output.get(), n);
-		_gLog.Write("Sening: %s", output.get());
+		_gLog.Write("Sening %d bytes", n);
 
 		boost::this_thread::sleep_for(boost::chrono::milliseconds(t));
 	}
@@ -240,8 +241,8 @@ void thread_send(SerialPtr port, boost::asio::io_service* ios) {
 }
 
 int main(int argc, char **argv) {
-	if (argc < 2) {
-		printf ("Usage:\n\ttimelatch port_name\n");
+	if (argc < 3) {
+		printf ("Usage:\n\ttimelatch input_port output_port\n");
 		return -1;
 	}
 
@@ -249,20 +250,23 @@ int main(int argc, char **argv) {
 	boost::asio::signal_set signals(ios, SIGINT, SIGTERM);  // interrupt signal
 	signals.async_wait(boost::bind(&boost::asio::io_service::stop, &ios));
 
-	SerialPtr serial = SerialComm::Create();
+	SerialPtr serial_in  = SerialComm::Create();	// 以串口为视角, 向串口输入
+	SerialPtr serial_out = SerialComm::Create();	// 以串口为视角, 从串口输出
 	const SerialComm::CBSlot& slot1 = boost::bind(&on_read, _1, _2);
 	const SerialComm::CBSlot& slot2 = boost::bind(&on_send, _1, _2);
-	serial->RegisterRead(slot1);
-	serial->RegisterWrite(slot2);
+	serial_in->RegisterRead(slot1);
+	serial_out->RegisterWrite(slot2);
 
-	if (!serial->Open(argv[1], 115200))
-		printf ("failed to open port<%s>\n", argv[1]);
-	else {
+	if (serial_in->Open(argv[1], 115200) && serial_out->Open(argv[2], 115200)) {
 		printf ("Press Ctrl+C to exit program\n");
-		boost::thread thrd(boost::bind(&thread_send, serial, &ios));
+		boost::thread thrd(boost::bind(&thread_send, serial_out, &ios));
 		ios.run();
-		serial->Close();
+		serial_in->Close();
+		serial_out->Close();
 		thrd.join();
+	}
+	else {
+		printf ("failed to open in_port<%s> or out_port<%s>\n", argv[1], argv[2]);
 	}
 
 	return 0;
